@@ -44,6 +44,12 @@ def getClassInfo(classNumber):
     endTimeElement = soup.select_one('.class-results-cell.end p')
     end_time = endTimeElement.get_text(strip=True) if endTimeElement else "N/A"
 
+    # Combine start and end times
+    if start_time != "N/A" and end_time != "N/A":
+        combined_time = f"{start_time} - {end_time}"
+    else:
+        combined_time = "N/A"
+
     # Extract Location
     locationElement = soup.select_one('.class-results-cell.location p')
     location = locationElement.get_text(strip=True) if locationElement else "N/A"
@@ -76,12 +82,14 @@ def getClassInfo(classNumber):
         "number": classNumber,
         "instructors": instructors,
         "days": days,
-        "startTime": start_time,
-        "endTime": end_time,
+        "time": combined_time,  # Combined time field
         "location": location,
         "dates": dates,
         "units": units,
         "seatStatus": seat_status,
+        # Keep individual times for backward compatibility if needed
+        "startTime": start_time,
+        "endTime": end_time,
     }
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import { CgProfile } from "react-icons/cg";
 
 const Card = () => {
   return (
-    <div className="w-full py-[10rem] px-4 bg-[#92223D]">
+    <div className="w-full py-[10rem] px-4">
       <div className="max-w-[1240px] mx-auto grid md:grid-cols-1 gap-8">
         <div className="w-full shadow-xl flex flex-col p-8 my-4 rounded-lg bg-white hover:scale-105 duration-300">
           <div className="mx-auto mt-[-3rem] bg-white rounded-full p-4">
