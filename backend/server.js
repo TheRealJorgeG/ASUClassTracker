@@ -33,7 +33,7 @@ const startServer = async () => {
     console.log('Database connected successfully');
     
     // Start the Express server
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       console.log(`Server is running on port ${port}`);
     });
 
