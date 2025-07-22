@@ -1,146 +1,124 @@
-#!/usr/bin/env python3
-"""
-Simple memory-optimized class info scraper for Render deployment
-No external dependencies beyond selenium
-"""
-
-import sys
-import gc
-import resource
+from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import time
+import sys
+import json
+import os
+import psutil # Import psutil
 
-def create_optimized_driver():
-    """Create memory-optimized Chrome driver"""
-    options = Options()
-    
-    # Essential memory optimizations
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-features=TranslateUI')
-    options.add_argument('--disable-extensions')
-    options.add_argument('--disable-plugins')
-    options.add_argument('--disable-images')  # Don't load images to save memory
-    options.add_argument('--disable-javascript')  # Only if your target doesn't need JS
-    
-    # Memory limits
-    options.add_argument('--memory-pressure-off')
-    options.add_argument('--max_old_space_size=384')  # Limit V8 heap
-    
-    # Additional optimizations for low memory
-    options.add_argument('--disable-background-networking')
-    options.add_argument('--disable-background-timer-throttling')
-    options.add_argument('--disable-renderer-backgrounding')
-    options.add_argument('--disable-backgrounding-occluded-windows')
-    options.add_argument('--disable-features=VizDisplayCompositor')
-    
-    try:
-        driver = webdriver.Chrome(options=options)
-        driver.implicitly_wait(10)
-        return driver
-    except Exception as e:
-        print(f"Failed to create driver: {e}")
+def get_memory_usage():
+    """Returns memory usage of the current process in MB."""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return {
+        "rss": round(mem_info.rss / (1024 * 1024), 2),  # Resident Set Size
+        "vms": round(mem_info.vms / (1024 * 1024), 2)   # Virtual Memory Size
+        # Removed "uss" as it's not available on all platforms (e.g., Windows)
+    }
+
+def getClassInfo(classNumber):
+    print(f"[{time.time()}] [MEMORY_TRACK] Before WebDriver init: {get_memory_usage()}", file=sys.stderr)
+
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument('--log-level=3')
+    chrome_options.add_argument('--headless')  # headless mode
+    driver = webdriver.Chrome(options=chrome_options)
+
+    print(f"[{time.time()}] [MEMORY_TRACK] After WebDriver init: {get_memory_usage()}", file=sys.stderr)
+
+    url = f"https://catalog.apps.asu.edu/catalog/classes/classlist?campusOrOnlineSelection=A&honors=F&keywords={classNumber}&promod=F&searchType=all&term=2257"
+    driver.get(url)
+    time.sleep(1)
+
+    print(f"[{time.time()}] [MEMORY_TRACK] After driver.get and sleep: {get_memory_usage()}", file=sys.stderr)
+
+    html_content = driver.page_source
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Course and title
+    boldElements = soup.select('.pointer .bold-hyperlink')
+    course = boldElements[0].get_text(strip=True) if len(boldElements) > 0 else "N/A"
+    title = boldElements[1].get_text(strip=True) if len(boldElements) > 1 else "N/A"
+
+    # Instructors
+    instructorDivs = soup.find_all("div", class_="class-results-cell instructor")
+    instructors = []
+    for div in instructorDivs:
+        aTag = div.find("a", class_="link-color")
+        if aTag:
+            instructors.append(aTag.get_text(strip=True))
+        else:
+            instructors.append(div.get_text(strip=True))
+
+    # Extract Days
+    daysElement = soup.select_one('.class-results-cell.pull-left.days p')
+    days = daysElement.get_text(strip=True) if daysElement else "N/A"
+
+    # Extract Start Time
+    startTimeElement = soup.select_one('.class-results-cell.pull-left.start p')
+    start_time = startTimeElement.get_text(strip=True) if startTimeElement else "N/A"
+
+    # Extract End Time
+    endTimeElement = soup.select_one('.class-results-cell.end p')
+    end_time = endTimeElement.get_text(strip=True) if endTimeElement else "N/A"
+
+    # Combine start and end times
+    if start_time != "N/A" and end_time != "N/A":
+        combined_time = f"{start_time} - {end_time}"
+    else:
+        combined_time = "N/A"
+
+    # Extract Location
+    locationElement = soup.select_one('.class-results-cell.location p')
+    location = locationElement.get_text(strip=True) if locationElement else "N/A"
+
+    # Extract Dates
+    datesElement = soup.select_one('.class-results-cell.d-none.d-lg-block.dates p')
+    dates = datesElement.get_text(strip=True) if datesElement else "N/A"
+
+    # Extract Units (directly in div)
+    unitsElement = soup.select_one('.class-results-cell.d-none.d-lg-block.units')
+    units = unitsElement.get_text(strip=True) if unitsElement else "N/A"
+
+    # Open/closed seats
+    seatElements = soup.select('.seats .text-nowrap')
+    seatCounts = [seat.get_text() for seat in seatElements]
+    seat_status = "Closed"
+    for seat in seatCounts:
+        if seat and int(seat[0]) > 0:
+            seat_status = "Open"
+            break
+            
+    print(f"[{time.time()}] [MEMORY_TRACK] Before driver.quit: {get_memory_usage()}", file=sys.stderr)
+    driver.quit()
+    print(f"[{time.time()}] [MEMORY_TRACK] After driver.quit: {get_memory_usage()}", file=sys.stderr)
+
+
+    if not seatCounts:
         return None
 
-def cleanup_driver(driver):
-    """Clean up driver and force garbage collection"""
-    if driver:
-        try:
-            driver.quit()
-        except:
-            pass
-        driver = None
-    
-    # Force garbage collection
-    gc.collect()
-
-def scrape_class_info(class_id):
-    """Scrape class information with memory management"""
-    print(f"Starting script for class {class_id}")
-    
-    # Set memory limit (400MB for free tier)
-    try:
-        memory_limit = 400 * 1024 * 1024  # 400MB in bytes
-        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
-        print("Set memory limit to 400MB")
-    except Exception as e:
-        print(f"Could not set memory limit: {e}")
-    
-    driver = None
-    
-    try:
-        print("Initializing Chrome driver")
-        driver = create_optimized_driver()
-        if not driver:
-            return {"error": "Failed to initialize driver"}
-        
-        # Your actual scraping logic goes here
-        # Replace this with your actual URL and scraping code
-        url = f"https://your-target-site.com/class/{class_id}"
-        
-        print(f"Navigating to: {url}")
-        driver.get(url)
-        
-        # Example: Wait for page to load and extract data
-        wait = WebDriverWait(driver, 15)
-        
-        # Replace with your actual selectors and logic
-        try:
-            # Example selectors - replace with your actual ones
-            title_element = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "class-title")))
-            title = title_element.text
-            
-            # Extract other information as needed
-            class_info = {
-                "class_id": class_id,
-                "title": title,
-                # Add other fields as needed
-            }
-            
-            print(f"Successfully scraped class {class_id}")
-            return class_info
-            
-        except Exception as e:
-            print(f"Error extracting data: {e}")
-            return {"error": f"Failed to extract data: {e}"}
-    
-    except Exception as e:
-        print(f"Error during scraping: {e}")
-        return {"error": str(e)}
-    
-    finally:
-        # Always cleanup
-        cleanup_driver(driver)
-
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python get_class_info.py <class_id>")
-        sys.exit(1)
-    
-    class_id = sys.argv[1]
-    
-    try:
-        result = scrape_class_info(class_id)
-        
-        if "error" in result:
-            print(f"Error: {result['error']}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            # Output the result (modify format as needed)
-            import json
-            print(json.dumps(result))
-    
-    except KeyboardInterrupt:
-        print("Script interrupted")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Unexpected error: {e}", file=sys.stderr)
-        sys.exit(1)
+    return {
+        "course": course,
+        "title": title,
+        "number": classNumber,
+        "instructors": instructors,
+        "days": days,
+        "time": combined_time,  # Combined time field
+        "location": location,
+        "dates": dates,
+        "units": units,
+        "seatStatus": seat_status,
+        # Keep individual times for backward compatibility if needed
+        "startTime": start_time,
+        "endTime": end_time,
+    }
 
 if __name__ == "__main__":
-    main()
+    input_class_number = sys.argv[1]
+    class_info = getClassInfo(input_class_number)
+    if class_info:
+        print(json.dumps(class_info))  # output as JSON
+    else:
+        print(json.dumps({"error": "Class not found"}))
+
+sys.stdout.flush()

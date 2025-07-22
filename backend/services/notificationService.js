@@ -1,4 +1,4 @@
-// Fixed notificationService.js
+// Fixed notificationService.js with enhanced logging
 const nodemailer = require('nodemailer');
 const { exec } = require('child_process');
 const util = require('util');
@@ -42,15 +42,54 @@ class NotificationService {
     this.checkInterval = 5 * 60 * 1000; // 5 minutes
     this.maxRetries = 3;
     this.emailTransporter = null;
-    
+
     // Rate limiting
     this.scriptCallQueue = [];
     this.isProcessingQueue = false;
-    this.maxConcurrentScripts = 3;
+    this.maxConcurrentScripts = 1;
     this.currentScriptCount = 0;
-    
+
+    // Logging counters
+    this.cycleCount = 0;
+    this.totalClassesChecked = 0;
+    this.totalNotificationsSent = 0;
+
     // Initialize email transporter only if environment variables are set
     this.initializeEmailTransporter();
+  }
+
+  // Memory monitoring utility
+  getMemoryUsage() {
+    const memUsage = process.memoryUsage();
+    return {
+      rss: Math.round(memUsage.rss / 1024 / 1024 * 100) / 100, // MB
+      heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024 * 100) / 100, // MB
+      heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100, // MB
+      external: Math.round(memUsage.external / 1024 / 1024 * 100) / 100 // MB
+    };
+  }
+
+  printMemoryUsage(stage) {
+    const memory = this.getMemoryUsage();
+    console.log(`[MEMORY] ${stage}: RSS=${memory.rss}MB, Heap=${memory.heapUsed}/${memory.heapTotal}MB, External=${memory.external}MB`);
+    return memory;
+  }
+
+  printClassInformation(classData, classNumber) {
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`CLASS STATUS CHECK - ${new Date().toISOString()}`);
+    console.log(`${'='.repeat(80)}`);
+    console.log(`Class Number:  ${classNumber}`);
+    console.log(`Course:        ${classData.course || 'N/A'}`);
+    console.log(`Title:         ${classData.title || 'N/A'}`);
+    console.log(`Instructors:   ${classData.instructors ? classData.instructors.join(', ') : 'N/A'}`);
+    console.log(`Days:          ${classData.days || 'N/A'}`);
+    console.log(`Time:          ${classData.time || 'N/A'}`);
+    console.log(`Location:      ${classData.location || 'N/A'}`);
+    console.log(`Dates:         ${classData.dates || 'N/A'}`);
+    console.log(`Units:         ${classData.units || 'N/A'}`);
+    console.log(`Seat Status:   ${classData.seatStatus || 'N/A'} ${classData.seatStatus === 'Open' ? '✅' : '❌'}`);
+    console.log(`${'='.repeat(80)}\n`);
   }
 
   initializeEmailTransporter() {
@@ -93,17 +132,18 @@ class NotificationService {
 
     this.isRunning = true;
     console.log('Starting notification service...');
-    
+    this.printMemoryUsage('Service Start');
+
     try {
       // Initialize notification tracking for existing classes
       await this.initializeNotificationTracking();
-      
+
       // Start the main monitoring loop
       this.monitorClasses();
-      
+
       // Start queue processor
       this.processScriptQueue();
-      
+
       console.log('Notification service started successfully');
     } catch (error) {
       console.error('Error starting notification service:', error);
@@ -115,11 +155,12 @@ class NotificationService {
   async stop() {
     this.isRunning = false;
     console.log('Stopping notification service...');
-    
+    this.printMemoryUsage('Service Stop');
+
     if (this.monitoringTimer) {
       clearTimeout(this.monitoringTimer);
     }
-    
+
     if (this.emailTransporter) {
       try {
         await this.emailTransporter.close();
@@ -133,10 +174,10 @@ class NotificationService {
     try {
       // Get all classes that don't have notification tracking
       const classes = await Class.find({}).populate('user_id');
-      
+
       for (const classItem of classes) {
         if (!classItem.user_id) continue;
-        
+
         const existingNotification = await Notification.findOne({
           user_id: classItem.user_id._id,
           class_id: classItem._id
@@ -152,8 +193,9 @@ class NotificationService {
           });
         }
       }
-      
+
       console.log('Notification tracking initialized');
+      this.printMemoryUsage('Tracking Initialized');
     } catch (error) {
       console.error('Error initializing notification tracking:', error);
     }
@@ -162,41 +204,83 @@ class NotificationService {
   async monitorClasses() {
     if (!this.isRunning) return;
 
-    console.log('Starting class monitoring cycle...');
-    
+    this.cycleCount++;
+    const cycleStartTime = new Date();
+    const startMemory = this.printMemoryUsage(`Cycle ${this.cycleCount} Start`);
+
+    console.log(`\n🔄 Starting monitoring cycle #${this.cycleCount} at ${cycleStartTime.toISOString()}`);
+
     try {
       // Get all active notifications, batch by batch
       const totalNotifications = await Notification.countDocuments({ is_active: true });
       const totalBatches = Math.ceil(totalNotifications / this.batchSize);
-      
+
       if (totalNotifications > 0) {
-        console.log(`Processing ${totalNotifications} notifications in ${totalBatches} batches`);
-        
+        console.log(`📊 Processing ${totalNotifications} notifications in ${totalBatches} batches`);
+
+        let batchClassesChecked = 0;
+        let batchNotificationsSent = 0;
+
         for (let batch = 0; batch < totalBatches; batch++) {
           if (!this.isRunning) break;
-          
+
+          console.log(`📦 Processing batch ${batch + 1}/${totalBatches}...`);
+          const batchStartMemory = this.printMemoryUsage(`Batch ${batch + 1} Start`);
+
           const notifications = await Notification.find({ is_active: true })
             .populate('user_id')
             .populate('class_id')
             .skip(batch * this.batchSize)
             .limit(this.batchSize);
-          
+
           // Process batch concurrently but with controlled concurrency
-          const batchPromises = notifications.map(notification => 
-            this.processNotification(notification)
-          );
-          
+          const batchPromises = notifications.map(async (notification) => {
+            const result = await this.processNotification(notification);
+            if (result) {
+              batchClassesChecked++;
+              if (result.notificationSent) {
+                batchNotificationsSent++;
+              }
+            }
+            return result;
+          });
+
           await Promise.allSettled(batchPromises);
-          
+
+          this.printMemoryUsage(`Batch ${batch + 1} Complete`);
+          console.log(`✅ Batch ${batch + 1} completed: ${notifications.length} classes processed`);
+
           // Small delay between batches
           await this.sleep(1000);
         }
+
+        this.totalClassesChecked += batchClassesChecked;
+        this.totalNotificationsSent += batchNotificationsSent;
+
+        const cycleEndTime = new Date();
+        const cycleDuration = (cycleEndTime - cycleStartTime) / 1000;
+        const endMemory = this.printMemoryUsage(`Cycle ${this.cycleCount} End`);
+        const memoryDelta = endMemory.rss - startMemory.rss;
+
+        console.log(`\n📈 CYCLE ${this.cycleCount} SUMMARY:`);
+        console.log(`   ⏱️  Duration: ${cycleDuration.toFixed(2)}s`);
+        console.log(`   📊 Classes checked: ${batchClassesChecked}`);
+        console.log(`   📧 Notifications sent: ${batchNotificationsSent}`);
+        console.log(`   💾 Memory delta: ${memoryDelta >= 0 ? '+' : ''}${memoryDelta.toFixed(2)}MB`);
+        console.log(`   📈 Total lifetime: ${this.totalClassesChecked} classes, ${this.totalNotificationsSent} notifications`);
+        console.log(`   ⏰ Next check at: ${new Date(Date.now() + this.checkInterval).toISOString()}`);
+        console.log(`${'='.repeat(100)}\n`);
+
+      } else {
+        console.log(`ℹ️  No active notifications to process`);
+        this.printMemoryUsage(`Cycle ${this.cycleCount} - No Work`);
       }
-      
+
     } catch (error) {
       console.error('Error in monitoring cycle:', error);
+      this.printMemoryUsage('Cycle Error');
     }
-    
+
     // Schedule next check
     this.monitoringTimer = setTimeout(() => {
       this.monitorClasses();
@@ -206,16 +290,19 @@ class NotificationService {
   async processNotification(notification) {
     try {
       if (!notification.user_id || !notification.class_id) {
-        console.warn(`Invalid notification data: ${notification._id}`);
-        return;
+        console.warn(`⚠️  Invalid notification data: ${notification._id}`);
+        return null;
       }
 
       const classStatus = await this.getClassStatus(notification.class_number);
-      
+
       if (!classStatus) {
-        console.warn(`Could not get status for class: ${notification.class_number}`);
-        return;
+        console.warn(`⚠️  Could not get status for class: ${notification.class_number}`);
+        return null;
       }
+
+      // Print the class information to console
+      this.printClassInformation(classStatus, notification.class_number);
 
       // Update notification record
       await Notification.findByIdAndUpdate(notification._id, {
@@ -223,19 +310,33 @@ class NotificationService {
         last_status: classStatus.seatStatus
       });
 
+      let notificationSent = false;
+
       // Check if status changed from Closed to Open
       if (notification.last_status === 'Closed' && classStatus.seatStatus === 'Open') {
+        console.log(`🎉 SEAT OPENED! Class ${notification.class_number} changed from Closed to Open!`);
+
         await this.sendNotificationEmail(notification, classStatus);
-        
+
         // Update notification sent info
         await Notification.findByIdAndUpdate(notification._id, {
           notification_sent: new Date(),
           notification_count: notification.notification_count + 1
         });
+
+        notificationSent = true;
+        console.log(`📧 Email notification sent for class ${notification.class_number}`);
+      } else if (notification.last_status === classStatus.seatStatus) {
+        console.log(`ℹ️  No status change for class ${notification.class_number} (still ${classStatus.seatStatus})`);
+      } else {
+        console.log(`📝 Status updated for class ${notification.class_number}: ${notification.last_status} → ${classStatus.seatStatus}`);
       }
 
+      return { classNumber: notification.class_number, status: classStatus.seatStatus, notificationSent };
+
     } catch (error) {
-      console.error(`Error processing notification ${notification._id}:`, error);
+      console.error(`❌ Error processing notification ${notification._id}:`, error);
+      return null;
     }
   }
 
@@ -245,7 +346,8 @@ class NotificationService {
       this.scriptCallQueue.push({
         classNumber,
         resolve,
-        retries: 0
+        retries: 0,
+        timestamp: Date.now()
       });
     });
   }
@@ -253,45 +355,83 @@ class NotificationService {
   async processScriptQueue() {
     while (this.isRunning) {
       if (this.scriptCallQueue.length > 0 && this.currentScriptCount < this.maxConcurrentScripts) {
-        const { classNumber, resolve, retries } = this.scriptCallQueue.shift();
+        const { classNumber, resolve, retries, timestamp } = this.scriptCallQueue.shift();
+        const queueWaitTime = Date.now() - timestamp;
+
+        if (queueWaitTime > 1000) { // Log if waited more than 1 second in queue
+          console.log(`⏱️  Class ${classNumber} waited ${queueWaitTime}ms in queue`);
+        }
+
         this.currentScriptCount++;
-        
+        console.log(`🐍 Running Python script for class ${classNumber} (${this.currentScriptCount}/${this.maxConcurrentScripts} active)`);
+
         this.executeClassScript(classNumber, resolve, retries);
       }
-      
+
       await this.sleep(100);
     }
   }
 
   async executeClassScript(classNumber, resolve, retries) {
+    const scriptStartTime = Date.now();
+    const scriptStartMemory = this.getMemoryUsage();
+
     try {
       // Use absolute path for Python script
       const scriptPath = path.join(__dirname, '..', 'scripts', 'get_class_info.py');
       const command = `python "${scriptPath}" "${classNumber}"`;
-      
-      const { stdout } = await this.execAsync(command, { timeout: 15000 });
-      
+
+      // MODIFICATION START: Capture stderr
+      const { stdout, stderr } = await this.execAsync(command, { timeout: 15000 });
+
+      // Log the stderr from the Python script if it exists
+      if (stderr) {
+        console.error(`[PYTHON_STDERR - Class ${classNumber}]:\n${stderr}`);
+      }
+      // MODIFICATION END
+
+      const scriptEndTime = Date.now();
+      const scriptDuration = scriptEndTime - scriptStartTime;
+      const scriptEndMemory = this.getMemoryUsage();
+      const memoryDelta = scriptEndMemory.rss - scriptStartMemory.rss;
+
+      console.log(`⚡ Script completed for class ${classNumber} in ${scriptDuration}ms (memory delta: ${memoryDelta >= 0 ? '+' : ''}${memoryDelta.toFixed(2)}MB)`);
+
       const classData = JSON.parse(stdout);
-      
+
       if (classData.error) {
+        console.log(`❌ Script returned error for class ${classNumber}: ${classData.error}`);
         resolve(null);
       } else {
         resolve(classData);
       }
-      
+
     } catch (error) {
-      console.error(`Error checking class ${classNumber}:`, error);
-      
+      const scriptEndTime = Date.now();
+      const scriptDuration = scriptEndTime - scriptStartTime;
+      console.error(`❌ Error checking class ${classNumber} (${scriptDuration}ms):`, error.message);
+
+      // MODIFICATION START: Log stderr from the error object if it exists
+      if (error.stderr) {
+          console.error(`[PYTHON_ERROR_STDERR - Class ${classNumber}]:\n${error.stderr}`);
+      }
+      // MODIFICATION END
+
       if (retries < this.maxRetries) {
+        const retryDelay = Math.pow(2, retries) * 1000;
+        console.log(`🔄 Retrying class ${classNumber} in ${retryDelay}ms (attempt ${retries + 1}/${this.maxRetries})`);
+
         // Retry with exponential backoff
         setTimeout(() => {
           this.scriptCallQueue.push({
             classNumber,
             resolve,
-            retries: retries + 1
+            retries: retries + 1,
+            timestamp: Date.now()
           });
-        }, Math.pow(2, retries) * 1000);
+        }, retryDelay);
       } else {
+        console.error(`🚫 Max retries exceeded for class ${classNumber}`);
         resolve(null);
       }
     } finally {
@@ -301,14 +441,14 @@ class NotificationService {
 
   async sendNotificationEmail(notification, classStatus) {
     if (!this.emailTransporter) {
-      console.log('Email transporter not available - skipping email notification');
+      console.log('📧 Email transporter not available - skipping email notification');
       return;
     }
 
     try {
       const user = notification.user_id;
       const classInfo = notification.class_id;
-      
+
       const mailOptions = {
         from: process.env.EMAIL_FROM || 'noreply@classnotifier.com',
         to: user.email,
@@ -316,43 +456,43 @@ class NotificationService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #2c3e50;">Great News! A Seat Opened Up!</h2>
-            
+
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
               <h3 style="color: #27ae60; margin-top: 0;">Class Information</h3>
               <p><strong>Course:</strong> ${classInfo.course}</p>
-              <p><strong>Title:</strong> ${classInfo.title}</p>
+              <p><strong>Title:</b> ${classInfo.title}</p>
               <p><strong>Class Number:</strong> ${classInfo.number}</p>
               <p><strong>Instructor(s):</strong> ${classInfo.instructors.join(', ')}</p>
               ${classStatus.days ? `<p><strong>Days:</strong> ${classStatus.days}</p>` : ''}
               ${classStatus.startTime && classStatus.endTime ? `<p><strong>Time:</strong> ${classStatus.startTime} - ${classStatus.endTime}</p>` : ''}
               ${classStatus.location ? `<p><strong>Location:</strong> ${classStatus.location}</p>` : ''}
             </div>
-            
+
             <div style="background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <p style="color: #27ae60; font-weight: bold; margin: 0;">
                 ✅ Status: SEATS AVAILABLE
               </p>
             </div>
-            
+
             <p style="color: #e74c3c; font-weight: bold;">
               Act fast! Seats can fill up quickly.
             </p>
-            
+
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ecf0f1;">
               <p style="color: #7f8c8d; font-size: 12px;">
-                This notification was sent because you're tracking this class. 
+                This notification was sent because you're tracking this class.
                 You can manage your tracked classes in your account dashboard.
               </p>
             </div>
           </div>
         `
       };
-      
+
       await this.emailTransporter.sendMail(mailOptions);
-      console.log(`Notification sent to ${user.email} for class ${classInfo.number}`);
-      
+      console.log(`📧 Notification email sent to ${user.email} for class ${classInfo.number}`);
+
     } catch (error) {
-      console.error('Error sending notification email:', error);
+      console.error('❌ Error sending notification email:', error);
     }
   }
 
@@ -375,7 +515,8 @@ class NotificationService {
         is_active: true
       });
 
-      console.log(`Notification tracking added for class ${classItem.number}`);
+      console.log(`➕ Notification tracking added for class ${classItem.number}`);
+      this.printMemoryUsage('Class Added');
     } catch (error) {
       console.error('Error handling class addition:', error);
     }
@@ -393,7 +534,8 @@ class NotificationService {
         { is_active: false }
       );
 
-      console.log(`Notification tracking deactivated for class ${classId}`);
+      console.log(`➖ Notification tracking deactivated for class ${classId}`);
+      this.printMemoryUsage('Class Removed');
     } catch (error) {
       console.error('Error handling class removal:', error);
     }
