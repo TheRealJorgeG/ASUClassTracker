@@ -1,4 +1,4 @@
-// Fixed notificationService.js with enhanced logging
+// Fixed notificationService.js with enhanced logging and process isolation
 const nodemailer = require('nodemailer');
 const { exec } = require('child_process');
 const util = require('util');
@@ -38,16 +38,20 @@ class NotificationService {
   constructor() {
     this.execAsync = util.promisify(exec);
     this.isRunning = false;
-    this.batchSize = 10;
+    this.batchSize = 5; // Reduced batch size to prevent resource conflicts
     this.checkInterval = 5 * 60 * 1000; // 5 minutes
     this.maxRetries = 3;
     this.emailTransporter = null;
 
-    // Rate limiting
+    // Rate limiting - IMPORTANT: Only 1 concurrent script
     this.scriptCallQueue = [];
     this.isProcessingQueue = false;
-    this.maxConcurrentScripts = 1;
+    this.maxConcurrentScripts = 1; // Keep this at 1 for Chrome stability
     this.currentScriptCount = 0;
+
+    // Add minimum delay between script starts
+    this.lastScriptStartTime = 0;
+    this.minScriptInterval = 2000; // 2 seconds between starts
 
     // Logging counters
     this.cycleCount = 0;
@@ -355,6 +359,12 @@ class NotificationService {
   async processScriptQueue() {
     while (this.isRunning) {
       if (this.scriptCallQueue.length > 0 && this.currentScriptCount < this.maxConcurrentScripts) {
+        // Enforce minimum interval between script starts
+        const timeSinceLastStart = Date.now() - this.lastScriptStartTime;
+        if (timeSinceLastStart < this.minScriptInterval) {
+          await this.sleep(this.minScriptInterval - timeSinceLastStart);
+        }
+
         const { classNumber, resolve, retries, timestamp } = this.scriptCallQueue.shift();
         const queueWaitTime = Date.now() - timestamp;
 
@@ -363,12 +373,13 @@ class NotificationService {
         }
 
         this.currentScriptCount++;
+        this.lastScriptStartTime = Date.now();
         console.log(`🐍 Running Python script for class ${classNumber} (${this.currentScriptCount}/${this.maxConcurrentScripts} active)`);
 
         this.executeClassScript(classNumber, resolve, retries);
       }
 
-      await this.sleep(100);
+      await this.sleep(500); // Increased sleep time
     }
   }
 
@@ -379,16 +390,50 @@ class NotificationService {
     try {
       // Use absolute path for Python script
       const scriptPath = path.join(__dirname, '..', 'scripts', 'get_class_info.py');
-      const command = `python "${scriptPath}" "${classNumber}"`;
+      const command = `python3 "${scriptPath}" "${classNumber}"`;
 
-      // MODIFICATION START: Capture stderr
-      const { stdout, stderr } = await this.execAsync(command, { timeout: 15000 });
+      // Create unique process environment to prevent Chrome conflicts
+      const uniqueId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const tempDir = `/tmp/chrome_process_${uniqueId}`;
+      
+      // Ensure temp directory exists
+      try {
+        const fs = require('fs');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+      } catch (dirError) {
+        console.warn(`Could not create temp dir ${tempDir}:`, dirError.message);
+      }
+
+      const env = {
+        ...process.env,
+        // Unique temp directory for this process
+        TMPDIR: tempDir,
+        XDG_RUNTIME_DIR: tempDir,
+        XDG_CONFIG_HOME: tempDir,
+        HOME: tempDir,
+        // Chrome-specific isolation
+        CHROME_DEVEL_SANDBOX: '/usr/local/sbin/chrome-devel-sandbox',
+        CHROME_USER_DATA_DIR: `${tempDir}/chrome_data`,
+        // Display isolation
+        DISPLAY: process.env.DISPLAY || ':99',
+        // Process isolation
+        PYTHONUNBUFFERED: '1',
+        PYTHONDONTWRITEBYTECODE: '1'
+      };
+
+      const { stdout, stderr } = await this.execAsync(command, { 
+        timeout: 45000,  // Increased timeout for container startup
+        env: env,
+        cwd: path.join(__dirname, '..'),
+        killSignal: 'SIGKILL'  // Force kill if timeout
+      });
 
       // Log the stderr from the Python script if it exists
-      if (stderr) {
+      if (stderr && stderr.trim()) {
         console.error(`[PYTHON_STDERR - Class ${classNumber}]:\n${stderr}`);
       }
-      // MODIFICATION END
 
       const scriptEndTime = Date.now();
       const scriptDuration = scriptEndTime - scriptStartTime;
@@ -397,7 +442,25 @@ class NotificationService {
 
       console.log(`⚡ Script completed for class ${classNumber} in ${scriptDuration}ms (memory delta: ${memoryDelta >= 0 ? '+' : ''}${memoryDelta.toFixed(2)}MB)`);
 
-      const classData = JSON.parse(stdout);
+      // Clean up temp directory
+      try {
+        const fs = require('fs');
+        const { execSync } = require('child_process');
+        if (fs.existsSync(tempDir)) {
+          execSync(`rm -rf "${tempDir}"`, { timeout: 5000 });
+        }
+      } catch (cleanupError) {
+        console.warn(`Cleanup warning for ${tempDir}:`, cleanupError.message);
+      }
+
+      let classData;
+      try {
+        classData = JSON.parse(stdout);
+      } catch (parseError) {
+        console.error(`❌ JSON parse error for class ${classNumber}:`, parseError.message);
+        console.error(`Raw stdout:`, stdout);
+        throw new Error(`Invalid JSON response: ${parseError.message}`);
+      }
 
       if (classData.error) {
         console.log(`❌ Script returned error for class ${classNumber}: ${classData.error}`);
@@ -411,17 +474,15 @@ class NotificationService {
       const scriptDuration = scriptEndTime - scriptStartTime;
       console.error(`❌ Error checking class ${classNumber} (${scriptDuration}ms):`, error.message);
 
-      // MODIFICATION START: Log stderr from the error object if it exists
       if (error.stderr) {
           console.error(`[PYTHON_ERROR_STDERR - Class ${classNumber}]:\n${error.stderr}`);
       }
-      // MODIFICATION END
 
       if (retries < this.maxRetries) {
-        const retryDelay = Math.pow(2, retries) * 1000;
+        const retryDelay = Math.pow(2, retries) * 3000 + Math.random() * 1000; // Add jitter
         console.log(`🔄 Retrying class ${classNumber} in ${retryDelay}ms (attempt ${retries + 1}/${this.maxRetries})`);
 
-        // Retry with exponential backoff
+        // Retry with exponential backoff + jitter
         setTimeout(() => {
           this.scriptCallQueue.push({
             classNumber,
