@@ -30,68 +30,24 @@ def create_chrome_options():
     """Create Chrome options optimized for containerized environments."""
     chrome_options = Options()
     
-    # Create a unique temporary directory for this session
+    # Use a unique temporary directory for this session's user data
     user_data_dir = tempfile.mkdtemp(prefix='chrome_user_data_')
     
-    # Essential options for Docker/container environments
+    # Essential options for running in Docker/headless environments
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--disable-software-rasterizer')
-    chrome_options.add_argument('--disable-background-timer-throttling')
-    chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-    chrome_options.add_argument('--disable-renderer-backgrounding')
-    chrome_options.add_argument('--disable-features=TranslateUI')
-    chrome_options.add_argument('--disable-ipc-flooding-protection')
-    chrome_options.add_argument('--single-process')
-    chrome_options.add_argument('--disable-web-security')
-    chrome_options.add_argument('--disable-features=VizDisplayCompositor')
-    
-    # User data directory - use unique temp directory
     chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
-    
-    # Window and display options
     chrome_options.add_argument('--window-size=1920,1080')
-    chrome_options.add_argument('--start-maximized')
     
-    # Disable unnecessary features
-    chrome_options.add_argument('--disable-extensions')
-    chrome_options.add_argument('--disable-plugins')
-    chrome_options.add_argument('--disable-images')
-    chrome_options.add_argument('--disable-javascript')  # We don't need JS for scraping
-    chrome_options.add_argument('--disable-default-apps')
-    chrome_options.add_argument('--disable-sync')
-    chrome_options.add_argument('--disable-background-networking')
-    chrome_options.add_argument('--disable-component-extensions-with-background-pages')
-    
-    # Security and crash handling
-    chrome_options.add_argument('--disable-client-side-phishing-detection')
-    chrome_options.add_argument('--disable-crash-reporter')
-    chrome_options.add_argument('--disable-oopr-debug-crash-dump')
-    chrome_options.add_argument('--no-crash-upload')
-    chrome_options.add_argument('--disable-in-process-stack-traces')
-    
-    # Memory optimizations
-    chrome_options.add_argument('--memory-pressure-off')
-    chrome_options.add_argument('--max_old_space_size=4096')
-    
-    # Logging
-    chrome_options.add_argument('--log-level=3')
-    chrome_options.add_argument('--silent')
-    chrome_options.add_argument('--disable-logging')
-    chrome_options.add_argument('--disable-system-font-check')
-    
-    # User agent
+    # A standard user agent
     chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
-    # Additional stability options
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_argument('--disable-dev-tools')
-    chrome_options.add_argument('--no-first-run')
-    chrome_options.add_argument('--no-default-browser-check')
-    chrome_options.add_argument('--disable-infobars')
-    chrome_options.add_argument('--disable-notifications')
+    # Disable features that are not needed for scraping to save resources
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-plugins-discovery')
+    chrome_options.add_argument('--disable-features=TranslateUI')
     
     return chrome_options, user_data_dir
 
