@@ -67,7 +67,7 @@ def getClassInfo(classNumber):
         # Try to create the WebDriver
         try:
             # Try with explicit service first
-            service = Service('/usr/local/bin/chromedriver')
+            service = Service()
             driver = webdriver.Chrome(service=service, options=chrome_options)
             print(f"[{time.time()}] [DRIVER_SUCCESS] WebDriver created with explicit service", file=sys.stderr)
         except Exception as service_error:
