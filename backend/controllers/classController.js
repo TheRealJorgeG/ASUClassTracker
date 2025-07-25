@@ -177,7 +177,7 @@ const lookupClass = asyncHandler(async (req, res) => {
   // Wrap exec in a Promise with better error handling
   const execPromise = (command) =>
     new Promise((resolve, reject) => {
-      exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+      exec(command, { timeout: 45000 }, (error, stdout, stderr) => {
         if (error) {
           console.error(`Exec error: ${error}`);
           console.error(`Stderr: ${stderr}`);
@@ -191,7 +191,7 @@ const lookupClass = asyncHandler(async (req, res) => {
   try {
     // Use absolute path for Python script
     const scriptPath = path.join(__dirname, '..', 'scripts', 'get_class_info.py');
-    const command = `python "${scriptPath}" "${number}"`;
+    const command = `python3 "${scriptPath}" "${number}"`;  // CHANGED: python -> python3
     
     console.log(`Executing command: ${command}`);
     

@@ -12,6 +12,10 @@ services:
       - key: DISPLAY
         value: ":99"
       
+      # Playwright Configuration
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/ms-playwright"
+      
       # Database Configuration
       - key: CONNECTION_STRING
         value: mongodb+srv://admin:admin@jorgecluster.do6prwp.mongodb.net/mycontacts-backend?retryWrites=true&w=majority&appName=jorgecluster

@@ -1,17 +1,14 @@
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time
-import sys
+import asyncio
 import json
 import os
 import tempfile
 import shutil
 import psutil
+import time
+import sys
+from bs4 import BeautifulSoup
+from typing import Dict, List, Optional
+from playwright.async_api import async_playwright
 
 def get_memory_usage():
     """Returns memory usage of the current process in MB."""
@@ -26,196 +23,186 @@ def get_memory_usage():
         print(f"[{time.time()}] [MEMORY_ERROR] {e}", file=sys.stderr)
         return {"rss": 0, "vms": 0}
 
-def create_chrome_options():
-    """Create Chrome options optimized for containerized environments."""
-    chrome_options = Options()
+async def getClassInfo(classNumber: str) -> Dict:
+    """
+    Scrapes detailed class information from ASU catalog using Playwright.
     
-    # Use a unique temporary directory for this session's user data
-    user_data_dir = tempfile.mkdtemp(prefix='chrome_user_data_')
-    
-    # Essential options for running in Docker/headless environments
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
-    chrome_options.add_argument('--window-size=1920,1080')
-    
-    # A standard user agent
-    chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-    
-    # Disable features that are not needed for scraping to save resources
-    chrome_options.add_argument('--disable-extensions')
-    chrome_options.add_argument('--disable-plugins-discovery')
-    chrome_options.add_argument('--disable-features=TranslateUI')
-    
-    return chrome_options, user_data_dir
+    Args:
+      classNumber (str): The 5-digit class number to search for.
+      
+    Returns:
+      Dict: A dictionary containing extracted class info, or None if not found.
+    """
+    print(f"[{time.time()}] [START] Processing class {classNumber} with Playwright", file=sys.stderr)
+    print(f"[{time.time()}] [MEMORY_TRACK] Before Playwright init: {get_memory_usage()}", file=sys.stderr)
 
-def getClassInfo(classNumber):
-    print(f"[{time.time()}] [START] Processing class {classNumber}", file=sys.stderr)
-    print(f"[{time.time()}] [MEMORY_TRACK] Before WebDriver init: {get_memory_usage()}", file=sys.stderr)
-
-    driver = None
+    browser_context = None
     user_data_dir = None
     
     try:
-        # Create Chrome options
-        chrome_options, user_data_dir = create_chrome_options()
-        
-        print(f"[{time.time()}] [CHROME_SETUP] User data dir: {user_data_dir}", file=sys.stderr)
-        
-        # Try to create the WebDriver
-        try:
-            # Try with explicit service first
-            service = Service()
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            print(f"[{time.time()}] [DRIVER_SUCCESS] WebDriver created with explicit service", file=sys.stderr)
-        except Exception as service_error:
-            print(f"[{time.time()}] [DRIVER_FALLBACK] Explicit service failed: {service_error}", file=sys.stderr)
-            # Fallback to default
-            driver = webdriver.Chrome(options=chrome_options)
-            print(f"[{time.time()}] [DRIVER_SUCCESS] WebDriver created with default service", file=sys.stderr)
+        # Create a unique temporary directory for this session's user data
+        user_data_dir = tempfile.mkdtemp(prefix='chrome_user_data_playwright_')
 
-        print(f"[{time.time()}] [MEMORY_TRACK] After WebDriver init: {get_memory_usage()}", file=sys.stderr)
-
-        # Set timeouts
-        driver.set_page_load_timeout(30)
-        driver.implicitly_wait(10)
-
-        url = f"https://catalog.apps.asu.edu/catalog/classes/classlist?campusOrOnlineSelection=A&honors=F&keywords={classNumber}&promod=F&searchType=all&term=2257"
-        
-        print(f"[{time.time()}] [URL_FETCH] Fetching: {url}", file=sys.stderr)
-        driver.get(url)
-        
-        # Wait for the page to load properly
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "class-results-cell"))
+        async with async_playwright() as p:
+            # Launch persistent context to handle user_data_dir correctly
+            # This fixes the 'Pass user_data_dir parameter' error.
+            browser_context = await p.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--window-size=1920,1080',
+                    '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '--disable-extensions',
+                    '--disable-plugins-discovery', # More robust than --disable-plugins
+                    '--disable-features=TranslateUI',
+                    '--memory-pressure-off', # From previous optimized options
+                    '--aggressive-cache-discard'
+                ]
             )
-            print(f"[{time.time()}] [PAGE_LOADED] Page loaded successfully", file=sys.stderr)
-        except Exception as wait_error:
-            print(f"[{time.time()}] [PAGE_TIMEOUT] Explicit wait timeout: {wait_error}", file=sys.stderr)
-            # Continue anyway, sometimes the page loads but the wait times out
-            time.sleep(2)  # Give it a bit more time
+            print(f"[{time.time()}] [CHROME_SETUP] User data dir: {user_data_dir}", file=sys.stderr)
+            print(f"[{time.time()}] [DRIVER_SUCCESS] Playwright browser context created", file=sys.stderr)
+            print(f"[{time.time()}] [MEMORY_TRACK] After Playwright init: {get_memory_usage()}", file=sys.stderr)
 
-        print(f"[{time.time()}] [MEMORY_TRACK] After driver.get and wait: {get_memory_usage()}", file=sys.stderr)
+            page = await browser_context.new_page()
+            
+            # Set timeouts
+            page.set_default_timeout(30000) # Default navigation timeout for page.goto, wait_for_selector
+            
+            url = f"https://catalog.apps.asu.edu/catalog/classes/classlist?campusOrOnlineSelection=A&honors=F&keywords={classNumber}&promod=F&searchType=all&term=2257"
+            
+            print(f"[{time.time()}] [URL_FETCH] Fetching: {url}", file=sys.stderr)
+            await page.goto(url)
+            
+            # Wait for the page to load properly, expecting class results
+            try:
+                await page.wait_for_selector(".class-results-cell", timeout=15000) # Wait for 15 seconds
+                print(f"[{time.time()}] [PAGE_LOADED] Page loaded successfully", file=sys.stderr)
+            except Exception as wait_error:
+                print(f"[{time.time()}] [PAGE_TIMEOUT] Explicit wait timeout: {wait_error}", file=sys.stderr)
+                # Continue anyway, sometimes the page loads but the wait times out for specific element
+                await asyncio.sleep(2) # Give it a bit more time
 
-        html_content = driver.page_source
-        soup = BeautifulSoup(html_content, 'html.parser')
+            print(f"[{time.time()}] [MEMORY_TRACK] After page.goto and wait: {get_memory_usage()}", file=sys.stderr)
 
-        # Debug: Check if we have class results
-        class_results = soup.find_all("div", class_="class-results-cell")
-        print(f"[{time.time()}] [DEBUG] Found {len(class_results)} class result cells", file=sys.stderr)
+            html_content = await page.content()
+            soup = BeautifulSoup(html_content, 'html.parser')
 
-        # Course and title
-        boldElements = soup.select('.pointer .bold-hyperlink')
-        course = boldElements[0].get_text(strip=True) if len(boldElements) > 0 else "N/A"
-        title = boldElements[1].get_text(strip=True) if len(boldElements) > 1 else "N/A"
+            # Debug: Check if we have class results
+            class_results = soup.find_all("div", class_="class-results-cell")
+            print(f"[{time.time()}] [DEBUG] Found {len(class_results)} class result cells", file=sys.stderr)
 
-        print(f"[{time.time()}] [DEBUG] Course: {course}, Title: {title}", file=sys.stderr)
+            # --- Start detailed data extraction logic ---
+            if not class_results:
+                print(f"[{time.time()}] [CLASS_NOT_FOUND] No class information found", file=sys.stderr)
+                return None # No class cells found at all
 
-        # Check if we found valid class data
-        if course == "N/A" and title == "N/A":
-            print(f"[{time.time()}] [CLASS_NOT_FOUND] No class information found", file=sys.stderr)
-            return None
+            # Extract Course and Title (assuming these are unique or refer to the primary class shown)
+            boldElements = soup.select('.pointer .bold-hyperlink')
+            course = boldElements[0].get_text(strip=True) if len(boldElements) > 0 else "N/A"
+            title = boldElements[1].get_text(strip=True) if len(boldElements) > 1 else "N/A"
 
-        # Instructors
-        instructorDivs = soup.find_all("div", class_="class-results-cell instructor")
-        instructors = []
-        for div in instructorDivs:
-            aTag = div.find("a", class_="link-color")
-            if aTag:
-                instructor_name = aTag.get_text(strip=True)
-                if instructor_name:
-                    instructors.append(instructor_name)
-            else:
-                instructor_name = div.get_text(strip=True)
-                if instructor_name:
-                    instructors.append(instructor_name)
+            print(f"[{time.time()}] [DEBUG] Course: {course}, Title: {title}", file=sys.stderr)
 
-        # Extract Days
-        daysElement = soup.select_one('.class-results-cell.pull-left.days p')
-        days = daysElement.get_text(strip=True) if daysElement else "N/A"
+            if course == "N/A" and title == "N/A":
+                print(f"[{time.time()}] [CLASS_NOT_FOUND] Basic class info (course/title) not found", file=sys.stderr)
+                return None
 
-        # Extract Start Time
-        startTimeElement = soup.select_one('.class-results-cell.pull-left.start p')
-        start_time = startTimeElement.get_text(strip=True) if startTimeElement else "N/A"
+            # Instructors
+            instructorDivs = soup.find_all("div", class_="class-results-cell instructor")
+            instructors = []
+            for div in instructorDivs:
+                aTag = div.find("a", class_="link-color")
+                if aTag:
+                    instructor_name = aTag.get_text(strip=True)
+                    if instructor_name:
+                        instructors.append(instructor_name)
+                else:
+                    instructor_name = div.get_text(strip=True)
+                    if instructor_name:
+                        instructors.append(instructor_name)
 
-        # Extract End Time
-        endTimeElement = soup.select_one('.class-results-cell.end p')
-        end_time = endTimeElement.get_text(strip=True) if endTimeElement else "N/A"
+            # Days
+            daysElement = soup.select_one('.class-results-cell.pull-left.days p')
+            days = daysElement.get_text(strip=True) if daysElement else "N/A"
 
-        # Combine start and end times
-        if start_time != "N/A" and end_time != "N/A":
-            combined_time = f"{start_time} - {end_time}"
-        else:
-            combined_time = "N/A"
+            # Start Time
+            startTimeElement = soup.select_one('.class-results-cell.pull-left.start p')
+            start_time = startTimeElement.get_text(strip=True) if startTimeElement else "N/A"
 
-        # Extract Location
-        locationElement = soup.select_one('.class-results-cell.location p')
-        location = locationElement.get_text(strip=True) if locationElement else "N/A"
+            # End Time
+            endTimeElement = soup.select_one('.class-results-cell.end p')
+            end_time = endTimeElement.get_text(strip=True) if endTimeElement else "N/A"
 
-        # Extract Dates
-        datesElement = soup.select_one('.class-results-cell.d-none.d-lg-block.dates p')
-        dates = datesElement.get_text(strip=True) if datesElement else "N/A"
+            # Combine start and end times
+            combined_time = f"{start_time} - {end_time}" if start_time != "N/A" and end_time != "N/A" else "N/A"
 
-        # Extract Units (directly in div)
-        unitsElement = soup.select_one('.class-results-cell.d-none.d-lg-block.units')
-        units = unitsElement.get_text(strip=True) if unitsElement else "N/A"
+            # Location
+            locationElement = soup.select_one('.class-results-cell.location p')
+            location = locationElement.get_text(strip=True) if locationElement else "N/A"
 
-        # Open/closed seats
-        seatElements = soup.select('.seats .text-nowrap')
-        seatCounts = [seat.get_text() for seat in seatElements]
-        seat_status = "Closed"
-        
-        print(f"[{time.time()}] [DEBUG] Seat counts: {seatCounts}", file=sys.stderr)
-        
-        for seat in seatCounts:
-            if seat and len(seat) > 0:
-                try:
-                    if int(seat[0]) > 0:
-                        seat_status = "Open"
-                        break
-                except (ValueError, IndexError):
-                    continue
+            # Dates
+            datesElement = soup.select_one('.class-results-cell.d-none.d-lg-block.dates p')
+            dates = datesElement.get_text(strip=True) if datesElement else "N/A"
 
-        print(f"[{time.time()}] [MEMORY_TRACK] Before driver.quit: {get_memory_usage()}", file=sys.stderr)
+            # Units
+            unitsElement = soup.select_one('.class-results-cell.d-none.d-lg-block.units')
+            units = unitsElement.get_text(strip=True) if unitsElement else "N/A"
 
-        if not seatCounts:
-            print(f"[{time.time()}] [WARNING] No seat information found", file=sys.stderr)
+            # Open/closed seats
+            seatElements = soup.select('.seats .text-nowrap')
+            seatCounts = [seat.get_text(strip=True) for seat in seatElements] # Ensure stripping whitespace
+            seat_status = "Closed"
+            
+            print(f"[{time.time()}] [DEBUG] Raw Seat counts: {seatCounts}", file=sys.stderr)
+            
+            for seat_text in seatCounts:
+                if seat_text and seat_text[0].isdigit(): # Check if it starts with a digit
+                    try:
+                        # Extract the first number which is usually 'open seats'
+                        open_seats = int(seat_text.split(' ')[0])
+                        if open_seats > 0:
+                            seat_status = "Open"
+                            break
+                    except (ValueError, IndexError):
+                        continue # If parsing fails, move to next seat count
+            
+            if not seatCounts:
+                print(f"[{time.time()}] [WARNING] No seat information found", file=sys.stderr)
 
-        result = {
-            "course": course,
-            "title": title,
-            "number": classNumber,
-            "instructors": instructors,
-            "days": days,
-            "time": combined_time,
-            "location": location,
-            "dates": dates,
-            "units": units,
-            "seatStatus": seat_status,
-            "startTime": start_time,
-            "endTime": end_time,
-        }
-        
-        print(f"[{time.time()}] [SUCCESS] Class data extracted successfully", file=sys.stderr)
-        return result
+            result = {
+                "course": course,
+                "title": title,
+                "number": classNumber,
+                "instructors": instructors,
+                "days": days,
+                "time": combined_time,
+                "location": location,
+                "dates": dates,
+                "units": units,
+                "seatStatus": seat_status,
+                "startTime": start_time,
+                "endTime": end_time,
+            }
+            
+            print(f"[{time.time()}] [SUCCESS] Class data extracted successfully", file=sys.stderr)
+            return result
 
     except Exception as e:
         print(f"[{time.time()}] [ERROR] Error in getClassInfo: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
         return None
-        
     finally:
-        # Clean up WebDriver
-        if driver:
+        # Clean up browser context
+        if browser_context:
             try:
-                driver.quit()
-                print(f"[{time.time()}] [CLEANUP] WebDriver quit successfully", file=sys.stderr)
-            except Exception as quit_error:
-                print(f"[{time.time()}] [CLEANUP_ERROR] Error quitting driver: {quit_error}", file=sys.stderr)
+                await browser_context.close()
+                print(f"[{time.time()}] [CLEANUP] Playwright browser context closed successfully", file=sys.stderr)
+            except Exception as close_error:
+                print(f"[{time.time()}] [CLEANUP_ERROR] Error closing browser context: {close_error}", file=sys.stderr)
         
         # Clean up temporary user data directory
         if user_data_dir and os.path.exists(user_data_dir):
@@ -233,11 +220,13 @@ if __name__ == "__main__":
         sys.exit(1)
         
     input_class_number = sys.argv[1]
-    class_info = getClassInfo(input_class_number)
+    
+    # Run the async Playwright function
+    class_info = asyncio.run(getClassInfo(input_class_number))
     
     if class_info:
         print(json.dumps(class_info))
     else:
         print(json.dumps({"error": "Class not found"}))
-
+        
     sys.stdout.flush()

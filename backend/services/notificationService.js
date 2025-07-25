@@ -388,13 +388,13 @@ class NotificationService {
     const scriptStartMemory = this.getMemoryUsage();
 
     try {
-      // Use absolute path for Python script
+      // Use absolute path for Python script - UPDATED FOR PLAYWRIGHT
       const scriptPath = path.join(__dirname, '..', 'scripts', 'get_class_info.py');
       const command = `python3 "${scriptPath}" "${classNumber}"`;
 
-      // Create unique process environment to prevent Chrome conflicts
+      // Create unique process environment to prevent browser conflicts
       const uniqueId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const tempDir = `/tmp/chrome_process_${uniqueId}`;
+      const tempDir = `/tmp/playwright_process_${uniqueId}`; // Changed from chrome_process
       
       // Ensure temp directory exists
       try {
@@ -413,9 +413,8 @@ class NotificationService {
         XDG_RUNTIME_DIR: tempDir,
         XDG_CONFIG_HOME: tempDir,
         HOME: tempDir,
-        // Chrome-specific isolation
-        CHROME_DEVEL_SANDBOX: '/usr/local/sbin/chrome-devel-sandbox',
-        CHROME_USER_DATA_DIR: `${tempDir}/chrome_data`,
+        // Playwright-specific isolation (removed Chrome-specific vars)
+        PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright',
         // Display isolation
         DISPLAY: process.env.DISPLAY || ':99',
         // Process isolation
@@ -424,10 +423,10 @@ class NotificationService {
       };
 
       const { stdout, stderr } = await this.execAsync(command, { 
-        timeout: 45000,  // Increased timeout for container startup
+        timeout: 45000,   // Kept same timeout
         env: env,
         cwd: path.join(__dirname, '..'),
-        killSignal: 'SIGKILL'  // Force kill if timeout
+        killSignal: 'SIGKILL'   // Force kill if timeout
       });
 
       // Log the stderr from the Python script if it exists

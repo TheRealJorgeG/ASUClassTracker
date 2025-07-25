@@ -1,7 +1,7 @@
 # Use Node.js base image with Python support
 FROM node:18-bullseye
 
-# Install Python and system dependencies
+# Install Python and system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -11,51 +11,57 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     ca-certificates \
     xvfb \
-    libxi6 \
-    libgconf-2-4 \
-    fonts-liberation \
-    libappindicator3-1 \
-    libasound2 \
+    libglib2.0-0 \
+    libnss3-dev \
     libatk-bridge2.0-0 \
     libdrm2 \
+    libxkbcommon0 \
     libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
+    libatspi2.0-0 \
+    # Playwright specific dependencies
+    libx11-6 \
     libxcomposite1 \
     libxcursor1 \
     libxdamage1 \
+    libxext6 \
     libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxtst6 \
+    libxss1 \
+    libasound2 \
+    libatk1.0-0 \
+    libc6 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgcc1 \
+    libgconf-2-4 \
+    libgdk-pixbuf2.0-0 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libstdc++6 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
     libxrandr2 \
     libxrender1 \
     libxss1 \
     libxtst6 \
-    libvulkan1 \
-    # Added common dependencies for headless Chrome
-    libdbus-glib-1-2 \
-    libxkbcommon0 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Google Chrome
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install ChromeDriver using the modern, reliable approach
-RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f3) \
-    && CHROME_MAJOR_VERSION=$(echo "$CHROME_VERSION" | cut -d "." -f1) \
-    && LATEST_DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}") \
-    && wget -O /tmp/chromedriver-linux64.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${LATEST_DRIVER_VERSION}/linux64/chromedriver-linux64.zip" \
-    && unzip /tmp/chromedriver-linux64.zip -d /usr/local/bin/ \
-    && mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/ \
-    && rm -rf /usr/local/bin/chromedriver-linux64 \
-    && chmod +x /usr/local/bin/chromedriver \
-    && rm /tmp/chromedriver-linux64.zip
-
-# Verify ChromeDriver installation
-RUN chromedriver --version
 
 # Create symlink for python command
 RUN ln -s /usr/bin/python3 /usr/bin/python
@@ -73,24 +79,29 @@ RUN npm install
 # Install Python dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Install Playwright browsers (this is the key step for Playwright)
+# Set the browsers path before installation
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN python3 -m playwright install chromium
+RUN python3 -m playwright install-deps chromium
+
 # Copy application code
 COPY . .
 
-# Create directories for Chrome with proper permissions
-RUN mkdir -p /tmp/chrome_data && chmod 755 /tmp/chrome_data
+# Create directories for browser data with proper permissions
+RUN mkdir -p /tmp/playwright_data && chmod 755 /tmp/playwright_data
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser \
     && chown -R appuser:appuser /app \
-    && chown -R appuser:appuser /tmp/chrome_data
+    && chown -R appuser:appuser /tmp/playwright_data
 
-# Set environment variables for the appuser. This is a crucial step.
-# The PATH should include /usr/local/bin
+# Set environment variables for Playwright
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV DISPLAY=:99
 ENV NODE_ENV=production
-ENV CHROME_BIN=/usr/bin/google-chrome-stable
-ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+# Playwright specific environment variables (moved after browser install)
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 
 # Change to the non-root user
 USER appuser
