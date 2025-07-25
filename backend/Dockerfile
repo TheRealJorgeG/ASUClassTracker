@@ -1,15 +1,13 @@
-# Use Node.js base image with Python support
+# Use Node.js base image
 FROM node:18-bullseye
 
-# Install Python and system dependencies for Playwright
+# Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    wget \
-    curl \
-    unzip \
-    gnupg \
-    ca-certificates \
+    python3-venv \
+    python3-dev \
+    build-essential \
     xvfb \
     libglib2.0-0 \
     libnss3-dev \
@@ -18,7 +16,6 @@ RUN apt-get update && apt-get install -y \
     libxkbcommon0 \
     libgtk-3-0 \
     libatspi2.0-0 \
-    # Playwright specific dependencies
     libx11-6 \
     libxcomposite1 \
     libxcursor1 \
@@ -38,33 +35,16 @@ RUN apt-get update && apt-get install -y \
     libdbus-1-3 \
     libexpat1 \
     libfontconfig1 \
-    libgcc1 \
     libgconf-2-4 \
     libgdk-pixbuf2.0-0 \
-    libglib2.0-0 \
-    libgtk-3-0 \
     libnspr4 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libstdc++6 \
-    libx11-6 \
     libx11-xcb1 \
     libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxss1 \
-    libxtst6 \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
-
-# Create symlink for python command
-RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Set working directory
 WORKDIR /app
@@ -76,38 +56,29 @@ COPY requirements.txt ./
 # Install Node.js dependencies
 RUN npm install
 
-# Install Python dependencies
+# Upgrade pip and install Python dependencies
+RUN python3 -m pip install --upgrade pip
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers (this is the key step for Playwright)
-# Set the browsers path before installation
+# Set Playwright browsers path
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN python3 -m playwright install chromium
-RUN python3 -m playwright install-deps chromium
+
+# Install Playwright browsers
+RUN python3 -m playwright install chromium --with-deps
 
 # Copy application code
 COPY . .
 
-# Create directories for browser data with proper permissions
+# Create directories with proper permissions
 RUN mkdir -p /tmp/playwright_data && chmod 755 /tmp/playwright_data
+RUN mkdir -p /ms-playwright && chmod 755 /ms-playwright
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser \
-    && chown -R appuser:appuser /app \
-    && chown -R appuser:appuser /tmp/playwright_data
-
-# Set environment variables for Playwright
-ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Set environment variables
 ENV DISPLAY=:99
 ENV NODE_ENV=production
-# Playwright specific environment variables (moved after browser install)
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
-
-# Change to the non-root user
-USER appuser
 
 # Expose port
 EXPOSE 5000
 
-# Command to run your application
+# Start the application
 CMD ["npm", "start"]
