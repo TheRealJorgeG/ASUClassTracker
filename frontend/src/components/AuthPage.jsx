@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import config from "../config/api";
 
 const AuthPage = ({ setToken }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -18,7 +19,7 @@ const AuthPage = ({ setToken }) => {
     setIsLoading(true);
     const endpoint = isLogin ? "/api/users/login" : "/api/users/register";
     try {
-      const response = await fetch(`http://localhost:5000${endpoint}`, {
+      const response = await fetch(`${config.API_BASE_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
