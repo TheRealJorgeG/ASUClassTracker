@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { FaTrash, FaPlus, FaEye, FaClock, FaMapMarkerAlt, FaUser, FaCalendarAlt } from "react-icons/fa";
+import config from "../config/api";
 
 const ClassesPage = () => {
   const [classes, setClasses] = useState([]);
@@ -14,7 +15,7 @@ const ClassesPage = () => {
       if (!token) return;
 
       try {
-        const response = await fetch("http://localhost:5000/api/classes", {
+        const response = await fetch(`${config.API_BASE_URL}/api/classes`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -45,7 +46,7 @@ const ClassesPage = () => {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/classes/${classId}`,
+        `${config.API_BASE_URL}/api/classes/${classId}`,
         {
           method: "DELETE",
           headers: {
@@ -73,7 +74,7 @@ const ClassesPage = () => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/classes/lookup",
+        `${config.API_BASE_URL}/api/classes/lookup`,
         {
           method: "POST",
           headers: {
@@ -110,7 +111,7 @@ const ClassesPage = () => {
     if (!token) return;
 
     try {
-      const response = await fetch("http://localhost:5000/api/classes", {
+      const response = await fetch(`${config.API_BASE_URL}/api/classes`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
