@@ -18,6 +18,11 @@ const AuthPage = ({ setToken }) => {
     e.preventDefault();
     setIsLoading(true);
     const endpoint = isLogin ? "/api/users/login" : "/api/users/register";
+
+    console.log('VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
+    console.log('config.API_BASE_URL:', config.API_BASE_URL);
+    console.log('Full URL being called:', `${config.API_BASE_URL}${endpoint}`);
+
     try {
       const response = await fetch(`${config.API_BASE_URL}${endpoint}`, {
         method: "POST",
