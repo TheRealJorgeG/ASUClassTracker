@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import config from "../config/api";
 
 const AuthPage = ({ setToken }) => {
@@ -133,17 +133,31 @@ const AuthPage = ({ setToken }) => {
                 )}
               </button>
 
-              <div className="text-center pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsLogin(!isLogin)}
-                  className="text-[#A23A56] font-semibold hover:text-[#B8456E] transition-colors duration-300 underline decoration-2 underline-offset-2"
-                >
-                  {isLogin
-                    ? "Don't have an account? Sign up"
-                    : "Already have an account? Sign in"
-                  }
-                </button>
+              <div className="text-center pt-2 space-y-2">
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLogin(!isLogin)}
+                    className="text-[#A23A56] font-semibold hover:text-[#B8456E] transition-colors duration-300 underline decoration-2 underline-offset-2"
+                  >
+                    {isLogin
+                      ? "Don't have an account? Sign up"
+                      : "Already have an account? Sign in"
+                    }
+                  </button>
+                </div>
+                
+                {/* Forgot Password Link - Only show on login */}
+                {isLogin && (
+                  <div>
+                    <Link
+                      to="/forgot-password"
+                      className="text-gray-600 hover:text-[#A23A56] transition-colors duration-300 text-sm underline decoration-1 underline-offset-2"
+                    >
+                      Forgot your password?
+                    </Link>
+                  </div>
+                )}
               </div>
             </form>
           </div>
