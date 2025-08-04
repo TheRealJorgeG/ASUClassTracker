@@ -9,6 +9,7 @@ import AuthPage from "./components/AuthPage";
 import ClassesPage from "./components/ClassesPage"; 
 import { decodeJwt } from "./utils/decodeJwt";
 import ForgotPassword from "./components/ForgotPassword";
+import ResetPassword from "./components/ResetPassword";
 
 function App() {
   const [token, setToken] = useState("");
@@ -67,6 +68,7 @@ function App() {
             />
             <Route path="/auth" element={<AuthPage setToken={setToken} />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
           </Routes>
         </div>
       </Router>

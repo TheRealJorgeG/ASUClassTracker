@@ -1,57 +1,76 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import config from "../config/api";
 
-const ForgotPassword = () => {
-  const [email, setEmail] = useState("");
+const ResetPassword = () => {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isVisible, setIsVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
   const [message, setMessage] = useState("");
+  const [token, setToken] = useState("");
+  
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  React.useEffect(() => {
+  useEffect(() => {
+    // Get token from URL params
+    const tokenFromUrl = searchParams.get('token');
+    if (tokenFromUrl) {
+      setToken(tokenFromUrl);
+    } else {
+      setMessage("Invalid reset link. Please request a new password reset.");
+    }
+    
     setTimeout(() => setIsVisible(true), 100);
-  }, []);
+  }, [searchParams]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('🚀 Form submitted!'); 
-    console.log('📧 Email:', email);
-    console.log('🌐 Full URL:', `${config.API_BASE_URL}/api/users/forgot-password`);
     
+    if (!token) {
+      setMessage("Invalid reset token. Please request a new password reset.");
+      return;
+    }
+    
+    if (password !== confirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+    
+    if (password.length < 6) {
+      setMessage("Password must be at least 6 characters long.");
+      return;
+    }
+
     setIsLoading(true);
     setMessage("");
 
     try {
-      console.log('📤 Making fetch request...');
-      
-      const response = await fetch(`${config.API_BASE_URL}/api/users/forgot-password`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/users/reset-password/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ password, confirmPassword }),
       });
-      
-      console.log('📥 Response received:', response.status, response.statusText);
-      
+
       const data = await response.json();
-      console.log('📊 Response data:', data);
 
       if (response.ok) {
-        setIsSubmitted(true);
-        setMessage("Password reset instructions have been sent to your email address.");
+        setIsSuccess(true);
+        setMessage("Password reset successful! You can now log in with your new password.");
       } else {
         setMessage(data.message || "Something went wrong. Please try again.");
       }
     } catch (error) {
-      console.error('❌ Fetch error:', error);
+      console.error(error);
       setMessage("Network error. Please check your connection and try again.");
     } finally {
-      console.log('✅ Request completed');
       setIsLoading(false);
     }
   };
 
-  if (isSubmitted) {
+  if (isSuccess) {
     return (
       <div className="min-h-screen relative overflow-hidden">
         {/* Background decorations */}
@@ -72,37 +91,22 @@ const ForgotPassword = () => {
               </div>
               
               <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4 tracking-tight">
-                Check Your Email
+                Password Reset Complete!
               </h1>
               
               <p className="text-lg text-white/80 leading-relaxed font-medium max-w-md mx-auto mb-6">
                 {message}
               </p>
-
-              <p className="text-sm text-white/60 max-w-md mx-auto">
-                If you don't see the email, check your spam folder or try again with a different email address.
-              </p>
             </div>
 
-            {/* Action Buttons */}
-            <div className="space-y-4 max-w-md w-full">
+            {/* Action Button */}
+            <div className="max-w-md w-full">
               <Link
                 to="/auth"
                 className="block w-full py-4 bg-gradient-to-r from-[#A23A56] to-[#B8456E] text-white rounded-xl font-bold text-lg hover:from-[#B8456E] hover:to-[#A23A56] transform hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-[#A23A56] focus:ring-opacity-50 text-center"
               >
-                Back to Sign In
+                Sign In with New Password
               </Link>
-              
-              <button
-                onClick={() => {
-                  setIsSubmitted(false);
-                  setEmail("");
-                  setMessage("");
-                }}
-                className="block w-full py-3 bg-white/10 backdrop-blur-md text-white rounded-xl font-semibold hover:bg-white/20 transition-all duration-300 border border-white/20"
-              >
-                Try Different Email
-              </button>
             </div>
           </div>
         </div>
@@ -124,11 +128,11 @@ const ForgotPassword = () => {
           {/* Header Section */}
           <div className="text-center mb-10">
             <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4 tracking-tight">
-              Reset Password
+              Create New Password
             </h1>
             
             <p className="text-lg text-white/80 leading-relaxed font-medium max-w-md mx-auto">
-              Enter your email address and we'll send you instructions to reset your password
+              Enter your new password below
             </p>
           </div>
 
@@ -140,42 +144,59 @@ const ForgotPassword = () => {
               onSubmit={handleSubmit}
               className="relative bg-white/95 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-white/30 hover:shadow-3xl transition-all duration-500 space-y-6"
             >
-              {/* Error/Success Message */}
-              {message && (
-                <div className={`p-4 rounded-xl ${message.includes('sent') ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                  <p className={`text-sm font-medium ${message.includes('sent') ? 'text-green-800' : 'text-red-800'}`}>
+              {/* Error Message */}
+              {message && !isSuccess && (
+                <div className="p-4 rounded-xl bg-red-50 border border-red-200">
+                  <p className="text-sm font-medium text-red-800">
                     {message}
                   </p>
                 </div>
               )}
 
               <div>
-                <label htmlFor="email" className="block text-gray-700 font-semibold mb-2">
-                  Email Address
+                <label htmlFor="password" className="block text-gray-700 font-semibold mb-2">
+                  New Password
                 </label>
                 <input
-                  type="email"
-                  id="email"
+                  type="password"
+                  id="password"
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#A23A56] focus:border-transparent focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-400"
-                  placeholder="your.email@asu.edu"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your new password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={6}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="confirmPassword" className="block text-gray-700 font-semibold mb-2">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  id="confirmPassword"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#A23A56] focus:border-transparent focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-400"
+                  placeholder="Confirm your new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || !token}
                 className="w-full py-4 bg-gradient-to-r from-[#A23A56] to-[#B8456E] text-white rounded-xl font-bold text-lg hover:from-[#B8456E] hover:to-[#A23A56] transform hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-[#A23A56] focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
               >
                 {isLoading ? (
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                    Sending Instructions...
+                    Updating Password...
                   </div>
                 ) : (
-                  "Send Reset Instructions"
+                  "Update Password"
                 )}
               </button>
 
@@ -200,9 +221,9 @@ const ForgotPassword = () => {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="font-bold text-white mb-1">Secure Reset</h3>
+                  <h3 className="font-bold text-white mb-1">Password Requirements</h3>
                   <p className="text-white/70 text-sm">
-                    We'll send a secure link to your email that expires in 1 hour. Click the link to create a new password.
+                    Your password must be at least 6 characters long. Choose something secure that you'll remember.
                   </p>
                 </div>
               </div>
@@ -214,4 +235,4 @@ const ForgotPassword = () => {
   );
 };
 
-export default ForgotPassword;
+export default ResetPassword;
