@@ -61,25 +61,26 @@ const ForgotPassword = () => {
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-r from-[#A23A56]/5 to-[#ffcb25]/5 rounded-full blur-3xl"></div>
         </div>
 
-        <div className="relative flex flex-col items-center justify-center min-h-screen px-4 py-8">
-          <div className={`transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+        <div className="relative flex flex-col items-center justify-start min-h-screen px-4 pt-16 pb-8">
+          {/* Fixed Position Green Checkmark Icon */}
+          <div className={`absolute top-16 left-1/2 transform -translate-x-1/2 w-20 h-20 bg-gradient-to-br from-[#4ade80] to-[#22c55e] rounded-full flex items-center justify-center transition-all duration-1000 ${isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+
+          <div className={`mt-32 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
             {/* Success Message */}
-            <div className="text-center mb-10">
-              <div className="w-20 h-20 bg-gradient-to-br from-[#4ade80] to-[#22c55e] rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              
+            <div className="text-center mb-6">
               <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4 tracking-tight">
                 Check Your Email
               </h1>
               
-              <p className="text-lg text-white/80 leading-relaxed font-medium max-w-md mx-auto mb-6">
+              <p className="text-lg text-white/80 leading-relaxed font-medium max-w-md mx-auto mb-4">
                 {message}
               </p>
 
-              <p className="text-sm text-white/60 max-w-md mx-auto">
+              <p className="text-sm text-white/60 max-w-md mx-auto mb-2">
                 If you don't see the email, check your spam folder or try again with a different email address.
               </p>
             </div>
@@ -119,10 +120,10 @@ const ForgotPassword = () => {
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-r from-[#A23A56]/5 to-[#ffcb25]/5 rounded-full blur-3xl"></div>
       </div>
 
-      <div className="relative flex flex-col items-center justify-start min-h-screen px-4 py-8">
+      <div className="relative flex flex-col items-center justify-start min-h-screen px-4 pt-16 pb-8">
         <div className={`transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
           {/* Header Section */}
-          <div className="text-center mb-10">
+          <div className="text-center mb-8">
             <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4 tracking-tight">
               Reset Password
             </h1>
@@ -133,7 +134,7 @@ const ForgotPassword = () => {
           </div>
 
           {/* Form Container */}
-          <div className="relative group max-w-md w-full">
+          <div className="relative group max-w-md w-full mb-8">
             <div className="absolute inset-0 bg-gradient-to-r from-[#A23A56] to-[#ffcb25] rounded-3xl blur-xl opacity-20 group-hover:opacity-30 transition-all duration-500"></div>
             
             <form
@@ -191,7 +192,7 @@ const ForgotPassword = () => {
           </div>
 
           {/* Additional Info */}
-          <div className="mt-10 max-w-md mx-auto">
+          <div className="max-w-md mx-auto">
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] rounded-xl flex items-center justify-center flex-shrink-0">
